@@ -59,10 +59,11 @@ def is_configured():
 def get_main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn_portfolio = types.KeyboardButton("📊 포트폴리오 조회")
+    btn_balance = types.KeyboardButton("💰 예수금 조회")
     btn_morning = types.KeyboardButton("🌅 아침 브리핑")
     btn_evening = types.KeyboardButton("🌆 저녁 브리핑")
     btn_trade = types.KeyboardButton("✍️ 매매 등록 안내")
-    keyboard.add(btn_portfolio)
+    keyboard.add(btn_portfolio, btn_balance)
     keyboard.add(btn_morning, btn_evening)
     keyboard.add(btn_trade)
     return keyboard
@@ -86,6 +87,7 @@ if bot:
             "매일 아침 7시와 저녁 8시 30분에 설정된 브리핑이 발송됩니다.\n\n"
             "📌 *사용 가능한 명령어:*\n"
             "• /portfolio (또는 버튼) - 현재 내 보유 자산 및 수익률 실시간 조회\n"
+            "• /balance (또는 버튼) - 키움증권 실제 예수금 및 출금가능금액 조회\n"
             "• /morning - 아침 7시 모닝 브리핑 수동 트리거\n"
             "• /evening - 저녁 8시 반 마감 브리핑 수동 트리거\n"
             "• /sync - 키움증권 실제 잔고와 포트폴리오 동기화\n"
@@ -110,6 +112,44 @@ if bot:
         # We replace the header for real-time portfolio check
         brief = brief.replace("🌆 *[저녁 마감 브리핑]*", "📊 *[실시간 포트폴리오 현황]*")
         bot.reply_to(message, brief, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['balance'])
+    def show_balance(message):
+        if not kiwoom_service.is_configured():
+            bot.reply_to(message, "⚠️ 키움증권 API 설정이 완료되지 않았습니다. config.json을 확인해 주세요.")
+            return
+            
+        bot.send_chat_action(message.chat.id, 'typing')
+        balance = kiwoom_service.get_balance()
+        
+        if not balance:
+            bot.reply_to(message, "❌ 키움증권에서 잔고 정보를 가져오지 못했습니다. API 설정을 확인해 주세요.")
+            return
+            
+        try:
+            deposit = int(balance.get("entr", 0))
+            d2_deposit = int(balance.get("d2_entra", 0))
+            total_evaluation = int(balance.get("tot_est_amt", 0))
+            total_asset = int(balance.get("aset_evlt_amt", 0))
+            total_purchase = int(balance.get("tot_pur_amt", 0))
+            total_profit_loss = total_evaluation - total_purchase
+            profit_rate = (total_profit_loss / total_purchase * 100) if total_purchase > 0 else 0.0
+            
+            sign = "🔺" if total_profit_loss > 0 else "🔻" if total_profit_loss < 0 else "➖"
+            
+            balance_text = (
+                "💰 *[키움증권 계좌 잔고 현황]*\n\n"
+                f"• *예수금 (당일 출금가능):* {deposit:,.0f} 원\n"
+                f"• *D+2 예수금:* {d2_deposit:,.0f} 원\n\n"
+                f"• *주식 매입금액:* {total_purchase:,.0f} 원\n"
+                f"• *주식 평가금액:* {total_evaluation:,.0f} 원\n"
+                f"• *주식 평가손익:* {sign} {total_profit_loss:,.0f} 원 ({profit_rate:+.2f}%)\n\n"
+                f"• *총 자산 평가액 (예수금+주식):* {total_asset:,.0f} 원\n"
+            )
+            bot.reply_to(message, balance_text, reply_markup=get_main_keyboard())
+        except Exception as e:
+            print(f"Error formatting balance: {e}")
+            bot.reply_to(message, f"❌ 잔고 정보를 가공하는 중 오류가 발생했습니다: {e}")
 
     @bot.message_handler(commands=['morning'])
     def trigger_morning(message):
@@ -227,10 +267,12 @@ if bot:
             bot.reply_to(message, f"⚠️ 포트폴리오에서 '{name_or_symbol}' 종목을 찾지 못했습니다.")
 
     # Keyboard text button handlers
-    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "🌅 아침 브리핑", "🌆 저녁 브리핑", "✍️ 매매 등록 안내"])
+    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "💰 예수금 조회", "🌅 아침 브리핑", "🌆 저녁 브리핑", "✍️ 매매 등록 안내"])
     def handle_keyboard_buttons(message):
         if message.text == "📊 포트폴리오 조회":
             show_portfolio(message)
+        elif message.text == "💰 예수금 조회":
+            show_balance(message)
         elif message.text == "🌅 아침 브리핑":
             trigger_morning(message)
         elif message.text == "🌆 저녁 브리핑":
