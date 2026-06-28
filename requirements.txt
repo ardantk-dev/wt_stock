@@ -1,0 +1,8 @@
+yfinance
+pyTelegramBotAPI
+beautifulsoup4
+schedule
+pandas
+requests
+kiwoom-client
+pytz

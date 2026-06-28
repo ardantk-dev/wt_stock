@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  wt-stock:
+    build: .
+    container_name: wt-stock-bot
+    restart: always
+    volumes:
+      # Mount the state files so data is not lost when the container restarts
+      - ./config.json:/app/config.json
+      - ./portfolio.json:/app/portfolio.json
+      - ./trade_log.json:/app/trade_log.json

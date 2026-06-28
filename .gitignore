@@ -1,0 +1,15 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sensitive local configuration and state
+config.json
+portfolio.json
+trade_log.json
+
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
