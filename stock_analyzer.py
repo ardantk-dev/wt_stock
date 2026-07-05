@@ -360,7 +360,6 @@ def generate_stock_strategies(portfolio_data, api_key):
             )
         )
         
-        # Clean response text in case Gemini wraps it in a code block
         text = response.text.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -375,10 +374,10 @@ def generate_stock_strategies(portfolio_data, api_key):
         print(f"Error generating stock strategies with Gemini: {e}")
         return {}
 
-def generate_noon_strategies(portfolio_data, api_key):
+def generate_noon_strategies(portfolio_data, indices_data, api_key):
     """
     Calls Gemini API to generate Buy/Hold/Sell percentages and a short afternoon trading strategy (under 50 characters)
-    for each stock in the portfolio, based on morning price movements and indicators.
+    for each stock in the portfolio, based on macro indices and morning price movements and indicators.
     Returns a dictionary mapping ticker to a dict containing buy, hold, sell, and strategy.
     """
     if not api_key:
@@ -426,9 +425,9 @@ def generate_noon_strategies(portfolio_data, api_key):
             return {}
             
         prompt = f"""
-당신은 전문 주식 분석가입니다. 각 종목의 당일 오전장 가격 흐름과 지표를 바탕으로, 오늘 오후장에 어떻게 대응해야 하는지 분석하고 다음 두 가지 정보를 생성해 주세요.
+당신은 전문 주식 분석가입니다. 오늘 오전의 거시 경제 흐름(미국 증시 결과, 금리, 환율 등)과 각 보유 종목들의 당일 오전장 가격 흐름(현재가, 전일대비 등락률, 이평선 위치, 최신 뉴스)을 모두 융합하여 오늘 오후장 대응을 분석하고 다음 두 가지 정보를 생성해 주세요.
 
-1. 오후장 행동 추천 강도 (매수, 유지, 매도)를 각각 퍼센티지 정수형 수치로 환산해 주세요. (예: 매수 60%, 유지 30%, 매도 10%). 이 세 비율의 합은 반드시 정확히 100이어야 합니다.
+1. 오후장 행동 추천 강도 (매수, 유지, 매도)를 각각 퍼센티지 정수형 수치로 환산해 주세요. (예: 매수 60%, 유지 30%, 매도 10%). 이 세 비율의 합은 반드시 정확히 100이어야 합니다. 거시 시황과 개별 종목의 오전장 가격 등락률, 차트 위치, 최신 뉴스를 유기적으로 모두 반영해야 합니다.
 2. 50자 이내의 아주 간결하고 직관적인 오후장 매매 추천 전략 한글 텍스트.
 
 응답 형식은 반드시 JSON 형태여야 하며, 키는 각 종목의 티커(예: '005930.KS')이고, 값은 다음 스키마를 따르는 객체여야 합니다. 마크다운 코드 블록(```json ... ```)이나 기타 설명 텍스트를 포함하지 말고 오직 순수한 JSON 문자열만 응답으로 돌려주십시오.
@@ -443,7 +442,10 @@ def generate_noon_strategies(portfolio_data, api_key):
   }}
 }}
 
-종목 정보:
+[글로벌 거시 경제 및 시장 지표 정보]:
+{json.dumps(indices_data, ensure_ascii=False, indent=2)}
+
+[보유 종목 오전장 등락 및 지표 정보]:
 {json.dumps(stocks_info, ensure_ascii=False, indent=2)}
 """
 
@@ -502,7 +504,8 @@ def format_noon_briefing(portfolio_data):
     strategies = {}
     if api_key:
         print("StockAnalyzer: Generating noon stock trading strategies with Gemini...")
-        strategies = generate_noon_strategies(portfolio_data, api_key)
+        indices = fetch_market_indices()
+        strategies = generate_noon_strategies(portfolio_data, indices, api_key)
         
     for stock_info, nation in all_stocks:
         ticker = stock_info["ticker"]
@@ -535,7 +538,13 @@ def format_noon_briefing(portfolio_data):
                 brief += f"  - 기술적 분석: {' | '.join(techs)}\n"
                 
             # Add afternoon strategy if generated
-            strat_info = strategies.get(ticker)
+            # Fuzzy matching: check full ticker, numeric code, and company name
+            strat_info = None
+            for key_candidate in [ticker, ticker.split('.')[0], data['name']]:
+                if key_candidate in strategies:
+                    strat_info = strategies[key_candidate]
+                    break
+                    
             if strat_info:
                 if isinstance(strat_info, dict):
                     buy_val = strat_info.get("buy", 0)
