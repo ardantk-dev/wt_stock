@@ -186,12 +186,12 @@ def calculate_rsi(prices, period=14):
 def get_stock_summary(ticker, nation="KR"):
     """
     Fetches detailed stock information: current price, change,
-    20-day moving average, RSI, daily range, and recent news.
+    20-day moving average, 60-day moving average, RSI, daily range, and recent news.
     """
     try:
         t = yf.Ticker(ticker)
-        # Fetch 30 days to calculate 20 MA and 14 RSI
-        hist = t.history(period="45d")
+        # Fetch 90 days to calculate 60 MA, 20 MA and 14 RSI
+        hist = t.history(period="90d")
         if hist.empty:
             return None
         
@@ -212,6 +212,7 @@ def get_stock_summary(ticker, nation="KR"):
             
         # Moving averages
         ma_20 = hist['Close'].rolling(window=20).mean().iloc[-1] if len(hist) >= 20 else None
+        ma_60 = hist['Close'].rolling(window=60).mean().iloc[-1] if len(hist) >= 60 else None
         
         # RSI
         rsi_14 = calculate_rsi(hist['Close'], period=14) if len(hist) >= 15 else None
@@ -240,6 +241,7 @@ def get_stock_summary(ticker, nation="KR"):
             "high": high_price,
             "low": low_price,
             "ma_20": ma_20,
+            "ma_60": ma_60,
             "rsi_14": rsi_14,
             "news": news
         }
@@ -290,6 +292,85 @@ def fetch_market_indices():
             results[name] = None
             
     return results
+
+def generate_stock_strategies(portfolio_data, api_key):
+    """
+    Calls Gemini API to generate a short trading strategy (under 100 characters)
+    for each stock in the portfolio, based on technical indicators and news.
+    Returns a dictionary mapping ticker to strategy string.
+    """
+    if not api_key:
+        return {}
+        
+    try:
+        client = genai.Client(api_key=api_key)
+        
+        all_stocks = []
+        for stock in portfolio_data.get("KR", []):
+            all_stocks.append((stock, "KR"))
+        for stock in portfolio_data.get("US", []):
+            all_stocks.append((stock, "US"))
+            
+        if not all_stocks:
+            return {}
+            
+        stocks_info = []
+        for stock_info, nation in all_stocks:
+            ticker = stock_info["ticker"]
+            buy_price = stock_info["buy_price"]
+            qty = stock_info["quantity"]
+            
+            data = get_stock_summary(ticker, nation)
+            if data:
+                close = data["close"]
+                pct_change = data["pct_change"]
+                profit_pct = ((close - buy_price) / buy_price) * 100
+                news_titles = [n['title'] for n in data['news']] if data['news'] else []
+                
+                stocks_info.append({
+                    "ticker": ticker,
+                    "name": data["name"],
+                    "nation": nation,
+                    "close": close,
+                    "buy_price": buy_price,
+                    "profit_pct": profit_pct,
+                    "ma_20": data["ma_20"],
+                    "ma_60": data["ma_60"],
+                    "rsi_14": data["rsi_14"],
+                    "news": news_titles
+                })
+                
+        if not stocks_info:
+            return {}
+            
+        prompt = f"""
+당신은 전문 주식 분석가입니다. 아래 제공되는 각 종목의 기술적 지표와 뉴스 정보를 바탕으로, 오늘 하루 어떻게 대응해야 하는지 '당일 매매 전략'을 종목당 100자 이내의 아주 명확하고 간결한 한국어로 작성해 주세요.
+
+응답 형식은 반드시 JSON 형태여야 하며, 키는 각 종목의 티커(예: '005930.KS')이고, 값은 100자 이내의 당일 매매 전략 문자열이어야 합니다. 마크다운 코드 블록(```json ... ```)이나 기타 설명 텍스트를 포함하지 말고 오직 순수한 JSON 문자열만 응답으로 돌려주십시오.
+
+종목 정보:
+{json.dumps(stocks_info, ensure_ascii=False, indent=2)}
+"""
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        # Clean response text in case Gemini wraps it in a code block
+        text = response.text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+            
+        return json.loads(text)
+    except Exception as e:
+        print(f"Error generating stock strategies with Gemini: {e}")
+        return {}
 
 def generate_ai_analysis(portfolio_data, indices_data, api_key):
     """
@@ -435,6 +516,22 @@ def format_morning_briefing(portfolio_data):
     if not all_stocks:
         brief += "_등록된 보유 종목이 없습니다._\n\n"
     else:
+        # Load API key and generate stock strategies first if configured
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+        api_key = ""
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    api_key = cfg.get("gemini_api_key", "")
+            except Exception as e:
+                print(f"Error reading config for Gemini API key: {e}")
+                
+        strategies = {}
+        if api_key:
+            print("StockAnalyzer: Generating individual stock trading strategies with Gemini...")
+            strategies = generate_stock_strategies(portfolio_data, api_key)
+
         news_items = []
         for stock_info, nation in all_stocks:
             ticker = stock_info["ticker"]
@@ -462,9 +559,17 @@ def format_morning_briefing(portfolio_data):
                 if data["ma_20"]:
                     pos = "위 🟢" if close > data["ma_20"] else "아래 🔴"
                     brief += f"  - 20일 이평선: 대비 {pos}\n"
+                if data["ma_60"]:
+                    pos_60 = "위 🟢" if close > data["ma_60"] else "아래 🔴"
+                    brief += f"  - 60일 이평선: 대비 {pos_60}\n"
                 if data["rsi_14"]:
                     rsi_status = "과매수 ⚠️" if data["rsi_14"] > 70 else "과매도 ⚡" if data["rsi_14"] < 30 else "보통"
                     brief += f"  - RSI (14): {data['rsi_14']:.1f} ({rsi_status})\n"
+                
+                # Add trading strategy if generated
+                strat = strategies.get(ticker)
+                if strat:
+                    brief += f"  - 당일 매매 전략: {strat}\n"
                 
                 # Add news to the collector
                 if data["news"]:
