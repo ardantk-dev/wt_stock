@@ -372,6 +372,159 @@ def generate_stock_strategies(portfolio_data, api_key):
         print(f"Error generating stock strategies with Gemini: {e}")
         return {}
 
+def generate_noon_strategies(portfolio_data, api_key):
+    """
+    Calls Gemini API to generate a short afternoon trading strategy (under 50 characters)
+    for each stock in the portfolio, based on morning price movements and indicators.
+    Returns a dictionary mapping ticker to strategy string.
+    """
+    if not api_key:
+        return {}
+        
+    try:
+        client = genai.Client(api_key=api_key)
+        
+        all_stocks = []
+        for stock in portfolio_data.get("KR", []):
+            all_stocks.append((stock, "KR"))
+        for stock in portfolio_data.get("US", []):
+            all_stocks.append((stock, "US"))
+            
+        if not all_stocks:
+            return {}
+            
+        stocks_info = []
+        for stock_info, nation in all_stocks:
+            ticker = stock_info["ticker"]
+            buy_price = stock_info["buy_price"]
+            qty = stock_info["quantity"]
+            
+            data = get_stock_summary(ticker, nation)
+            if data:
+                close = data["close"]
+                pct_change = data["pct_change"]
+                profit_pct = ((close - buy_price) / buy_price) * 100
+                news_titles = [n['title'] for n in data['news']] if data['news'] else []
+                
+                stocks_info.append({
+                    "ticker": ticker,
+                    "name": data["name"],
+                    "nation": nation,
+                    "close": close,
+                    "buy_price": buy_price,
+                    "profit_pct": profit_pct,
+                    "ma_20": data["ma_20"],
+                    "ma_60": data["ma_60"],
+                    "rsi_14": data["rsi_14"],
+                    "news": news_titles
+                })
+                
+        if not stocks_info:
+            return {}
+            
+        prompt = f"""
+당신은 전문 주식 분석가입니다. 각 종목의 당일 오전장 가격 흐름과 지표를 바탕으로, 오늘 오후장에 어떻게 대응해야 하는지 '오후장 매매 추천 전략'을 종목당 반드시 50자 이내의 한글로 요약하여 작성해 주세요.
+
+응답 형식은 반드시 JSON 형태여야 하며, 키는 각 종목의 티커(예: '005930.KS')이고, 값은 50자 이내의 요약된 매매 추천 전략 문자열이어야 합니다. 마크다운 코드 블록(```json ... ```)이나 기타 설명 텍스트를 포함하지 말고 오직 순수한 JSON 문자열만 응답으로 돌려주십시오.
+
+종목 정보:
+{json.dumps(stocks_info, ensure_ascii=False, indent=2)}
+"""
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        text = response.text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+            
+        return json.loads(text)
+    except Exception as e:
+        print(f"Error generating noon stock strategies with Gemini: {e}")
+        return {}
+
+def format_noon_briefing(portfolio_data):
+    """
+    Generates the noon briefing text (12:00 PM KST).
+    Includes owned stocks' morning price movements, technical summaries,
+    and 50-character afternoon trading strategies.
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    brief = f"🕛 *[정오 시황 및 포트폴리오 브리핑]* - {now_str}\n\n"
+    brief += "📊 *오전장 보유 종목 등락 현황*\n"
+    
+    all_stocks = []
+    for stock in portfolio_data.get("KR", []):
+        all_stocks.append((stock, "KR"))
+    for stock in portfolio_data.get("US", []):
+        all_stocks.append((stock, "US"))
+        
+    if not all_stocks:
+        brief += "_등록된 보유 종목이 없습니다._\n\n"
+        return brief
+        
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    api_key = ""
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                api_key = cfg.get("gemini_api_key", "")
+        except Exception as e:
+            print(f"Error reading config for Gemini API key: {e}")
+            
+    strategies = {}
+    if api_key:
+        print("StockAnalyzer: Generating noon stock trading strategies with Gemini...")
+        strategies = generate_noon_strategies(portfolio_data, api_key)
+        
+    for stock_info, nation in all_stocks:
+        ticker = stock_info["ticker"]
+        buy_price = stock_info["buy_price"]
+        qty = stock_info["quantity"]
+        
+        data = get_stock_summary(ticker, nation)
+        if data:
+            close = data["close"]
+            pct_change = data["pct_change"]
+            profit_pct = ((close - buy_price) / buy_price) * 100
+            
+            sign = "🔺" if pct_change > 0 else "🔻" if pct_change < 0 else "➖"
+            profit_sign = "+" if profit_pct > 0 else ""
+            
+            brief += f"• *{data['name']}* ({ticker})\n"
+            curr_symbol = "원" if nation == "KR" else "$"
+            brief += f"  - 현재가: {close:,.2f}{curr_symbol} ({sign} {pct_change:.2f}%)\n"
+            brief += f"  - 평가수익률: {profit_sign}{profit_pct:.2f}%\n"
+            
+            # Technical highlights
+            techs = []
+            if data["ma_20"]:
+                pos_20 = "위 🟢" if close > data["ma_20"] else "아래 🔴"
+                techs.append(f"20일 대비: {pos_20}")
+            if data["ma_60"]:
+                pos_60 = "위 🟢" if close > data["ma_60"] else "아래 🔴"
+                techs.append(f"60일 대비: {pos_60}")
+            if techs:
+                brief += f"  - 기술적 분석: {' | '.join(techs)}\n"
+                
+            # Add afternoon strategy if generated
+            strat = strategies.get(ticker)
+            if strat:
+                brief += f"  - 오후장 전략: {strat}\n"
+        else:
+            brief += f"• *{stock_info['name']}* ({ticker}): 데이터 로드 실패\n"
+            
+    brief += "\n💡 오후장도 안전하고 현명한 투자 되세요! 📈"
+    return brief
+
 def generate_ai_analysis(portfolio_data, indices_data, api_key):
     """
     Calls Gemini API to analyze the market and portfolio, and generate

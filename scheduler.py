@@ -160,12 +160,16 @@ def run_evening_briefing():
 def run_noon_sync():
     print("Scheduler: Running scheduled noon portfolio sync...")
     success, sync_msg = telegram_bot.sync_portfolio()
-    noon_msg = "🕛 *[정오 잔고 자동 동기화]*\n\n" + sync_msg
-    telegram_bot.send_alert(noon_msg)
     if success:
-        print("Scheduler: Noon portfolio sync completed successfully.")
+        print("Scheduler: Noon portfolio sync completed successfully. Generating briefing...")
+        portfolio = telegram_bot.load_json(telegram_bot.PORTFOLIO_FILE, {"KR": [], "US": []})
+        brief = stock_analyzer.format_noon_briefing(portfolio)
+        telegram_bot.send_alert(brief)
+        print("Scheduler: Noon portfolio briefing sent.")
     else:
         print("Scheduler: Noon portfolio sync failed.")
+        error_msg = "🕛 *[정오 잔고 자동 동기화 실패]*\n\n" + sync_msg
+        telegram_bot.send_alert(error_msg)
 
 def setup_schedule(morning_time, evening_time):
     schedule.clear()
