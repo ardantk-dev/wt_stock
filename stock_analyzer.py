@@ -355,6 +355,9 @@ def generate_stock_strategies(portfolio_data, api_key):
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         
         # Clean response text in case Gemini wraps it in a code block
@@ -447,6 +450,9 @@ def generate_noon_strategies(portfolio_data, api_key):
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         
         text = response.text.strip()
