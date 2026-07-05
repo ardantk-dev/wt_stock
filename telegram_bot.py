@@ -61,10 +61,11 @@ def get_main_keyboard():
     btn_portfolio = types.KeyboardButton("📊 포트폴리오 조회")
     btn_balance = types.KeyboardButton("💰 예수금 조회")
     btn_morning = types.KeyboardButton("🌅 아침 브리핑")
+    btn_noon = types.KeyboardButton("🕛 정오 브리핑")
     btn_evening = types.KeyboardButton("🌆 저녁 브리핑")
     btn_trade = types.KeyboardButton("✍️ 매매 등록 안내")
     keyboard.add(btn_portfolio, btn_balance)
-    keyboard.add(btn_morning, btn_evening)
+    keyboard.add(btn_morning, btn_noon, btn_evening)
     keyboard.add(btn_trade)
     return keyboard
 
@@ -156,6 +157,13 @@ if bot:
         portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
         bot.send_chat_action(message.chat.id, 'typing')
         brief = stock_analyzer.format_morning_briefing(portfolio)
+        send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['noon'])
+    def trigger_noon(message):
+        portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
+        bot.send_chat_action(message.chat.id, 'typing')
+        brief = stock_analyzer.format_noon_briefing(portfolio)
         send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(commands=['evening'])
@@ -267,7 +275,7 @@ if bot:
             bot.reply_to(message, f"⚠️ 포트폴리오에서 '{name_or_symbol}' 종목을 찾지 못했습니다.")
 
     # Keyboard text button handlers
-    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "💰 예수금 조회", "🌅 아침 브리핑", "🌆 저녁 브리핑", "✍️ 매매 등록 안내"])
+    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "💰 예수금 조회", "🌅 아침 브리핑", "🕛 정오 브리핑", "🌆 저녁 브리핑", "✍️ 매매 등록 안내"])
     def handle_keyboard_buttons(message):
         if message.text == "📊 포트폴리오 조회":
             show_portfolio(message)
@@ -275,6 +283,8 @@ if bot:
             show_balance(message)
         elif message.text == "🌅 아침 브리핑":
             trigger_morning(message)
+        elif message.text == "🕛 정오 브리핑":
+            trigger_noon(message)
         elif message.text == "🌆 저녁 브리핑":
             trigger_evening(message)
         elif message.text == "✍️ 매매 등록 안내":
