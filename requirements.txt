@@ -6,3 +6,4 @@ pandas
 requests
 kiwoom-client
 pytz
+google-genai

@@ -130,6 +130,10 @@ def check_price_alerts():
         save_alert_state(state)
 
 def run_morning_briefing():
+    print("Scheduler: Auto-syncing portfolio before morning briefing...")
+    sync_success, sync_msg = telegram_bot.sync_portfolio()
+    telegram_bot.send_alert(sync_msg)
+    
     print("Scheduler: Generating morning briefing...")
     portfolio = telegram_bot.load_json(telegram_bot.PORTFOLIO_FILE, {"KR": [], "US": []})
     brief = stock_analyzer.format_morning_briefing(portfolio)
@@ -140,6 +144,10 @@ def run_morning_briefing():
         print("Scheduler: Failed to send morning briefing.")
 
 def run_evening_briefing():
+    print("Scheduler: Auto-syncing portfolio before evening briefing...")
+    sync_success, sync_msg = telegram_bot.sync_portfolio()
+    telegram_bot.send_alert(sync_msg)
+    
     print("Scheduler: Generating evening briefing...")
     portfolio = telegram_bot.load_json(telegram_bot.PORTFOLIO_FILE, {"KR": [], "US": []})
     brief = stock_analyzer.format_evening_briefing(portfolio)
@@ -149,11 +157,22 @@ def run_evening_briefing():
     else:
         print("Scheduler: Failed to send evening briefing.")
 
+def run_noon_sync():
+    print("Scheduler: Running scheduled noon portfolio sync...")
+    success, sync_msg = telegram_bot.sync_portfolio()
+    noon_msg = "🕛 *[정오 잔고 자동 동기화]*\n\n" + sync_msg
+    telegram_bot.send_alert(noon_msg)
+    if success:
+        print("Scheduler: Noon portfolio sync completed successfully.")
+    else:
+        print("Scheduler: Noon portfolio sync failed.")
+
 def setup_schedule(morning_time, evening_time):
     schedule.clear()
     schedule.every().day.at(morning_time).do(run_morning_briefing)
+    schedule.every().day.at("12:00").do(run_noon_sync)
     schedule.every().day.at(evening_time).do(run_evening_briefing)
-    print(f"Scheduler: Configured schedules - Morning at {morning_time}, Evening at {evening_time}")
+    print(f"Scheduler: Configured schedules - Morning at {morning_time}, Noon at 12:00, Evening at {evening_time}")
 
 def run_scheduler_loop():
     config = telegram_bot.load_json(telegram_bot.CONFIG_FILE, {})

@@ -5,6 +5,9 @@ import xml.etree.ElementTree as ET
 import urllib.parse
 import re
 from datetime import datetime, timedelta
+import os
+import json
+from google import genai
 
 def get_kr_stock_name(code):
     """Fetches the official Korean stock name using Naver Finance."""
@@ -14,6 +17,7 @@ def get_kr_stock_name(code):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         r = requests.get(url, headers=headers, timeout=5)
+        r.encoding = r.apparent_encoding
         if r.status_code == 200:
             match = re.search(r'<title>(.*?) : Npay', r.text)
             if match:
@@ -52,6 +56,7 @@ def search_naver_ticker(query):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         r = requests.get(url, headers=headers, timeout=5)
+        r.encoding = r.apparent_encoding
         if r.status_code == 200:
             codes = re.findall(r'code=(\d{6})', r.text)
             if codes:
@@ -286,11 +291,102 @@ def fetch_market_indices():
             
     return results
 
+def generate_ai_analysis(portfolio_data, indices_data, api_key):
+    """
+    Calls Gemini API to analyze the market and portfolio, and generate
+    market recap, owned stocks proposals, and 3 new stock recommendations.
+    """
+    try:
+        # Create genai client with api_key
+        client = genai.Client(api_key=api_key)
+        
+        # Prepare market data string
+        market_str = ""
+        for name, data in indices_data.items():
+            if data:
+                market_str += f"- {name}: {data['close']:,.2f} (전일대비 {data['pct_change']:.2f}%)\n"
+            else:
+                market_str += f"- {name}: 데이터 없음\n"
+                
+        # Prepare portfolio data string
+        portfolio_str = ""
+        all_stocks = []
+        for stock in portfolio_data.get("KR", []):
+            all_stocks.append((stock, "KR"))
+        for stock in portfolio_data.get("US", []):
+            all_stocks.append((stock, "US"))
+            
+        if not all_stocks:
+            portfolio_str = "보유 종목 없음\n"
+        else:
+            for stock_info, nation in all_stocks:
+                ticker = stock_info["ticker"]
+                buy_price = stock_info["buy_price"]
+                qty = stock_info["quantity"]
+                
+                data = get_stock_summary(ticker, nation)
+                if data:
+                    close = data["close"]
+                    pct_change = data["pct_change"]
+                    profit_pct = ((close - buy_price) / buy_price) * 100
+                    
+                    portfolio_str += f"■ {data['name']} ({ticker}) [{nation}]\n"
+                    portfolio_str += f"  - 평단가: {buy_price:,.2f} | 현재가: {close:,.2f} | 평가수익률: {profit_pct:+.2f}%\n"
+                    if data["ma_20"]:
+                        portfolio_str += f"  - 20일 이동평균선 대비: {'위 (상승세)' if close > data['ma_20'] else '아래 (하락세)'}\n"
+                    if data["rsi_14"]:
+                        portfolio_str += f"  - RSI (14): {data['rsi_14']:.1f}\n"
+                    if data["news"]:
+                        news_titles = [n['title'] for n in data['news']]
+                        portfolio_str += f"  - 최근 관련 뉴스: {', '.join(news_titles)}\n"
+                else:
+                    portfolio_str += f"■ {stock_info['name']} ({ticker}) [{nation}]: 데이터 로드 실패\n"
+                    
+        # Construct prompt
+        prompt = f"""
+당신은 전문 주식 투자 분석가이자 자산관리 AI 에이전트입니다.
+제시된 글로벌 시황 데이터와 사용자의 보유 종목 현황을 바탕으로, 오늘 아침 브리핑에 포함될 **글로벌 시황 분석**, **보유 종목 대응 제안**, 그리고 **오늘의 신규 종목 추천 3가지**를 작성해 주세요.
+
+[글로벌 시황 데이터]
+{market_str}
+
+[사용자 보유 종목 현황]
+{portfolio_str}
+
+아래 작성 가이드를 엄격히 준수하여 텔레그램 메시지용 마크다운 형식으로 응답해 주세요.
+
+[작성 가이드]
+1. **글로벌 시황 분석**:
+   - 전일 미국 증시(S&P 500, Nasdaq, Dow Jones)의 마감 특징과 야간 선물(S&P 500 Futures, Nasdaq 100 Futures)의 움직임을 요약해 주세요.
+   - 미국채 10년물 금리와 원/달러 환율의 변동을 바탕으로, 오늘 한국 주식 시장(KOSPI, KOSDAQ)에 미칠 영향과 주요 투자 포인트를 2~3줄로 분석해 주세요.
+
+2. **보유 종목 대응 제안 (3가지)**:
+   - 사용자의 보유 종목 중 기술적 지표(RSI 과매수/과매도, 20일 이평선 돌파 여부)나 최근 뉴스, 수익률 상태를 고려하여 구체적이고 실천 가능한 대응 제안(매수/매도/홀딩 및 비중 조절 등)을 딱 3가지만 제안해 주세요.
+   - 어떤 종목에 대한 제안인지 종목명과 티커를 명시해 주세요.
+
+3. **오늘의 신규 종목 추천 (3가지)**:
+   - 현재 시황(매크로 환경, 주도 섹터 등)에 적합한 국내(KR) 또는 미국(US) 주식 중에서 오늘 신규 진입을 고려해볼 만한 매력적인 종목 3가지를 추천해 주세요.
+   - 각 종목별로 **종목명(티커)**와 **추천 이유(매수 논리)**를 명확하게 작성해 주세요.
+
+응답은 마크다운 기호(`*`, `•`, `■`)를 적절히 활용하여 시각적으로 깔끔하고 읽기 쉽게 작성해 주시고, 인사말이나 마무리 말 없이 가이드의 1, 2, 3번 섹션만 바로 작성해 주세요.
+"""
+
+        # Generate content using the new SDK
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        return response.text
+    except Exception as e:
+        print(f"Error generating AI analysis with Gemini: {e}")
+        return ""
+
+
 def format_morning_briefing(portfolio_data):
     """
     Generates the morning briefing text (7:00 AM KST).
     Includes US market recap, futures, bond yields, exchange rate,
-    owned stocks' analysis, and news.
+    owned stocks' analysis, news, and optional Gemini AI analysis.
     """
     indices = fetch_market_indices()
     
@@ -387,6 +483,28 @@ def format_morning_briefing(portfolio_data):
                     brief += f"  - [{art['title']}]({art['link']})\n"
             brief += "\n"
             
+    # 5. Gemini AI Market & Portfolio Analysis
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    api_key = ""
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                api_key = cfg.get("gemini_api_key", "")
+        except Exception as e:
+            print(f"Error reading config for Gemini API key: {e}")
+            
+    if api_key:
+        print("StockAnalyzer: Generating AI analysis with Gemini...")
+        ai_analysis = generate_ai_analysis(portfolio_data, indices, api_key)
+        if ai_analysis:
+            brief += "\n🤖 *[Gemini AI 시장 분석 & 추천]*\n"
+            brief += ai_analysis + "\n"
+        else:
+            print("StockAnalyzer: AI analysis generation returned empty result.")
+    else:
+        print("StockAnalyzer: Gemini API key is not configured. Skipping AI analysis.")
+
     brief += "💡 오늘 하루도 성공 투자 하세요! 🚀"
     return brief
 

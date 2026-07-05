@@ -111,7 +111,7 @@ if bot:
         brief = stock_analyzer.format_evening_briefing(portfolio)
         # We replace the header for real-time portfolio check
         brief = brief.replace("🌆 *[저녁 마감 브리핑]*", "📊 *[실시간 포트폴리오 현황]*")
-        bot.reply_to(message, brief, reply_markup=get_main_keyboard())
+        send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(commands=['balance'])
     def show_balance(message):
@@ -156,14 +156,14 @@ if bot:
         portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
         bot.send_chat_action(message.chat.id, 'typing')
         brief = stock_analyzer.format_morning_briefing(portfolio)
-        bot.reply_to(message, brief, reply_markup=get_main_keyboard())
+        send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(commands=['evening'])
     def trigger_evening(message):
         portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
         bot.send_chat_action(message.chat.id, 'typing')
         brief = stock_analyzer.format_evening_briefing(portfolio)
-        bot.reply_to(message, brief, reply_markup=get_main_keyboard())
+        send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
 
     @bot.message_handler(commands=['add'])
     def add_stock_command(message):
@@ -346,6 +346,66 @@ if bot:
         except Exception as e:
             return False, str(e)
 
+def sync_portfolio():
+    """
+    Syncs the local portfolio's KR stocks with actual holdings from Kiwoom Securities.
+    Returns (success, message_text)
+    """
+    if not kiwoom_service.is_configured():
+        return False, "⚠️ 키움증권 API 설정이 완료되지 않았습니다. config.json을 확인해 주세요."
+        
+    holdings = kiwoom_service.get_holdings()
+    if holdings is None:
+        return False, "❌ 키움증권 데이터를 가져오는데 실패했습니다. API 설정을 확인해 주세요."
+        
+    resolved_holdings = []
+    sync_desc = ""
+    for h in holdings:
+        code = h["ticker"]
+        name = h["name"]
+        qty = h["quantity"]
+        buy_price = h["buy_price"]
+        
+        yf_ticker, resolved_name = stock_analyzer.resolve_ticker(code, "KR")
+        if not yf_ticker:
+            yf_ticker = f"{code}.KS"
+            resolved_name = name
+            
+        resolved_holdings.append({
+            "ticker": yf_ticker,
+            "name": resolved_name,
+            "quantity": qty,
+            "buy_price": buy_price
+        })
+        sync_desc += f"• *{resolved_name}* ({yf_ticker}): {qty}주 | 평단가: {buy_price:,.0f}원\n"
+        
+    portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
+    portfolio["KR"] = resolved_holdings
+    save_json(PORTFOLIO_FILE, portfolio)
+    
+    trade_logs = load_json(TRADE_LOG_FILE, [])
+    trade_logs.append({
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "type": "SYNC_KIWOOM",
+        "nation": "KR",
+        "count": len(resolved_holdings)
+    })
+    save_json(TRADE_LOG_FILE, trade_logs)
+    
+    if resolved_holdings:
+        reply_msg = (
+            f"✅ *키움증권 포트폴리오 동기화 완료!*\n\n"
+            f"다음 보유 종목 정보가 로컬 포트폴리오에 업데이트 되었습니다:\n\n"
+            f"{sync_desc}"
+        )
+    else:
+        reply_msg = (
+            f"✅ *키움증권 포트폴리오 동기화 완료!*\n\n"
+            f"보유 중인 국내 주식이 없어 로컬 포트폴리오의 국내 주식 내역이 비워졌습니다."
+        )
+    return True, reply_msg
+
+
     @bot.message_handler(commands=['sync'])
     def sync_kiwoom_portfolio(message):
         if not kiwoom_service.is_configured():
@@ -355,58 +415,7 @@ if bot:
         bot.send_chat_action(message.chat.id, 'typing')
         bot.reply_to(message, "🔄 키움증권 계좌에서 보유 종목 정보를 가져오는 중입니다...")
         
-        holdings = kiwoom_service.get_holdings()
-        
-        if holdings is None:
-            bot.send_message(message.chat.id, "❌ 키움증권 데이터를 가져오는데 실패했습니다. API 설정을 확인해 주세요.")
-            return
-            
-        resolved_holdings = []
-        sync_desc = ""
-        
-        for h in holdings:
-            code = h["ticker"]
-            name = h["name"]
-            qty = h["quantity"]
-            buy_price = h["buy_price"]
-            
-            yf_ticker, resolved_name = stock_analyzer.resolve_ticker(code, "KR")
-            if not yf_ticker:
-                yf_ticker = f"{code}.KS"
-                resolved_name = name
-                
-            resolved_holdings.append({
-                "ticker": yf_ticker,
-                "name": resolved_name,
-                "quantity": qty,
-                "buy_price": buy_price
-            })
-            sync_desc += f"• *{resolved_name}* ({yf_ticker}): {qty}주 | 평단가: {buy_price:,.0f}원\n"
-            
-        portfolio = load_json(PORTFOLIO_FILE, {"KR": [], "US": []})
-        portfolio["KR"] = resolved_holdings
-        save_json(PORTFOLIO_FILE, portfolio)
-        
-        trade_logs = load_json(TRADE_LOG_FILE, [])
-        trade_logs.append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "type": "SYNC_KIWOOM",
-            "nation": "KR",
-            "count": len(resolved_holdings)
-        })
-        save_json(TRADE_LOG_FILE, trade_logs)
-        
-        if resolved_holdings:
-            reply_msg = (
-                f"✅ *키움증권 포트폴리오 동기화 완료!*\n\n"
-                f"다음 보유 종목 정보가 로컬 포트폴리오에 업데이트 되었습니다:\n\n"
-                f"{sync_desc}"
-            )
-        else:
-            reply_msg = (
-                f"✅ *키움증권 포트폴리오 동기화 완료!*\n\n"
-                f"보유 중인 국내 주식이 없어 로컬 포트폴리오의 국내 주식 내역이 비워졌습니다."
-            )
+        success, reply_msg = sync_portfolio()
         bot.send_message(message.chat.id, reply_msg)
 
     @bot.message_handler(commands=['buy', 'sell'])
@@ -616,6 +625,63 @@ if bot:
         bot.reply_to(message, reply_msg, reply_markup=get_main_keyboard())
 
 
+def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=None):
+    """
+    Sends a potentially long message by splitting it into chunks of under 4000 characters,
+    split at newline boundaries to avoid breaking markdown.
+    """
+    if not text:
+        return False
+        
+    MAX_LEN = 4000
+    if len(text) <= MAX_LEN:
+        try:
+            if reply_to_message_id:
+                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
+            else:
+                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup)
+            return True
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            return False
+
+    # Split by lines
+    lines = text.split("\n")
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    
+    for line in lines:
+        # Add 1 for the newline character
+        if current_length + len(line) + 1 > MAX_LEN:
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+            current_chunk = [line]
+            current_length = len(line)
+        else:
+            current_chunk.append(line)
+            current_length += len(line) + 1
+            
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+        
+    success = True
+    for i, chunk in enumerate(chunks):
+        try:
+            # Only apply reply_markup to the last chunk
+            markup = reply_markup if i == len(chunks) - 1 else None
+            
+            if reply_to_message_id and i == 0:
+                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup, reply_to_message_id=reply_to_message_id)
+            else:
+                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
+        except Exception as e:
+            print(f"Error sending chunk {i}: {e}")
+            success = False
+            
+    return success
+
+
 def send_alert(message_text):
     """Utility function for scheduler to send briefings to registered chat ID."""
     global bot
@@ -628,9 +694,4 @@ def send_alert(message_text):
         print("Cannot send alert. telegram_chat_id is not registered in config.json. Use /start first.")
         return False
         
-    try:
-        bot.send_message(chat_id, message_text, parse_mode="MARKDOWN", reply_markup=get_main_keyboard())
-        return True
-    except Exception as e:
-        print(f"Error sending scheduled alert: {e}")
-        return False
+    return send_split_message(chat_id, message_text, reply_markup=get_main_keyboard())

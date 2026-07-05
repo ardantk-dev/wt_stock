@@ -129,7 +129,7 @@ def get_balance():
 def get_holdings():
     api = get_client()
     if not api:
-        return []
+        return None
     acc_no = get_effective_account_number()
     
     params = {
@@ -155,7 +155,7 @@ def get_holdings():
             return parse_holdings_response(res)
         except Exception as e2:
             print(f"Error fetching today_account_status (kt00017): {e2}")
-            return []
+            return None
 
 def parse_holdings_response(res):
     holdings = []
