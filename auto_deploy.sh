@@ -1,6 +1,6 @@
 #!/bin/bash
 # Move to the project directory
-cd /home/ardantk/wt_stock || exit
+cd /home/ubuntu/wt_stock || exit
 
 # Fetch the latest state from remote main branch
 git fetch origin main
