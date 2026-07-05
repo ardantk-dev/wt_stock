@@ -1,4 +1,7 @@
 #!/bin/bash
+# Set PATH for cron execution compatibility
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # Move to the project directory
 cd /home/ubuntu/wt_stock || exit
 
