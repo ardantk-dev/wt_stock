@@ -4,7 +4,8 @@ services:
   wt-stock:
     build: .
     container_name: wt-stock-bot
-    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
     dns:
       - 8.8.8.8
       - 8.8.4.4

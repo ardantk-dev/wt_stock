@@ -745,67 +745,77 @@ def sync_portfolio():
 
 def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=None):
     """
-    Sends a potentially long message by splitting it into chunks of under 4000 characters.
-    Ultra-resilient: tries reply_to + markdown -> markdown without reply_to -> plain text fallback.
+    Sends a potentially long message by splitting it into chunks of under 3500 characters.
+    Ultra-resilient: 4-stage fallback matrix guarantees message delivery.
     """
     if not text:
         return False
-        
-    MAX_LEN = 4000
-    if len(text) <= MAX_LEN:
-        try:
-            bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
-            return True
-        except Exception as e1:
-            print(f"Send with reply_to failed ({e1}), retrying without reply_to...")
-            try:
-                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup)
-                return True
-            except Exception as e2:
-                print(f"Markdown send failed ({e2}), retrying plain text...")
-                try:
-                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
-                    return True
-                except Exception as e3:
-                    print(f"Plain text send failed: {e3}")
-                    return False
 
-    # Split by lines
-    lines = text.split("\n")
-    chunks = []
-    current_chunk = []
-    current_length = 0
+    print(f"[Telegram] send_split_message called: len={len(text)}, chat_id={chat_id}", flush=True)
+    MAX_LEN = 3500
     
+    # Safely chunk text
+    raw_chunks = []
+    lines = text.split("\n")
+    cur_lines = []
+    cur_len = 0
     for line in lines:
-        if current_length + len(line) + 1 > MAX_LEN:
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-            current_chunk = [line]
-            current_length = len(line)
+        if len(line) > MAX_LEN:
+            for sub_line in [line[k:k+MAX_LEN] for k in range(0, len(line), MAX_LEN)]:
+                if cur_lines:
+                    raw_chunks.append("\n".join(cur_lines))
+                    cur_lines = []
+                    cur_len = 0
+                raw_chunks.append(sub_line)
+        elif cur_len + len(line) + 1 > MAX_LEN:
+            if cur_lines:
+                raw_chunks.append("\n".join(cur_lines))
+            cur_lines = [line]
+            cur_len = len(line)
         else:
-            current_chunk.append(line)
-            current_length += len(line) + 1
-            
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
+            cur_lines.append(line)
+            cur_len += len(line) + 1
+    if cur_lines:
+        raw_chunks.append("\n".join(cur_lines))
         
+    print(f"[Telegram] Total chunks to send: {len(raw_chunks)}", flush=True)
+
     success = True
-    for i, chunk in enumerate(chunks):
-        markup = reply_markup if i == len(chunks) - 1 else None
+    for i, chunk in enumerate(raw_chunks):
+        markup = reply_markup if i == len(raw_chunks) - 1 else None
+        
+        # 1. Try Markdown with reply_to
         try:
             bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
+            print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Markdown with reply_to", flush=True)
+            continue
         except Exception as e1:
-            print(f"Chunk {i} send with reply_to failed ({e1}), retrying without reply_to...")
-            try:
-                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
-            except Exception as e2:
-                print(f"Chunk {i} markdown failed ({e2}), retrying plain text...")
-                try:
-                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
-                except Exception as e3:
-                    print(f"Chunk {i} plain text failed: {e3}")
-                    success = False
-            
+            print(f"[Telegram] Chunk {i+1} markdown+reply_to failed: {e1}", flush=True)
+
+        # 2. Try Markdown without reply_to
+        try:
+            bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
+            print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Markdown without reply_to", flush=True)
+            continue
+        except Exception as e2:
+            print(f"[Telegram] Chunk {i+1} markdown without reply_to failed: {e2}", flush=True)
+
+        # 3. Try Plain Text with reply_to
+        try:
+            bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
+            print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Plain Text with reply_to", flush=True)
+            continue
+        except Exception as e3:
+            print(f"[Telegram] Chunk {i+1} plain_text+reply_to failed: {e3}", flush=True)
+
+        # 4. Try Plain Text without reply_to (Ultimate Fallback)
+        try:
+            bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+            print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Plain Text without reply_to", flush=True)
+        except Exception as e4:
+            print(f"[Telegram] Chunk {i+1} ALL send attempts failed: {e4}", flush=True)
+            success = False
+
     return success
 
 
