@@ -1092,6 +1092,16 @@ def analyze_single_stock_with_ai(query, api_key):
     except Exception as e:
         print(f"Error calling Gemini API for single stock analysis: {e}")
         err_str = str(e)
+        if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "limit: 0" in err_str or "Quota exceeded" in err_str:
+            return (
+                "⚠️ *Gemini API 무료 쿼터 미지원 키 사용 중*\n\n"
+                "현재 등록하신 API 키(`AQ...`)는 구글 클라우드 콘솔 전용 키로 기본 쿼터가 0(limit: 0)으로 제한되어 있습니다.\n\n"
+                "💡 *무료 쿼터(하루 1,500회 무료) 키(`AIzaSy...`) 즉시 발급방법:*\n"
+                "1. [Google AI Studio](https://aistudio.google.com/app/apikey) 접속 (구글 계정 로그인)\n"
+                "2. **Create API key** → **Create API key in new project** 클릭\n"
+                "3. `AIzaSy...`로 시작하는 키를 복사한 뒤 텔레그램 채팅창에 입력:\n"
+                "`/set_gemini [복사한_API_KEY]`"
+            )
         if "API_KEY_INVALID" in err_str or "API key not valid" in err_str or "INVALID_ARGUMENT" in err_str:
             return (
                 "⚠️ *Gemini API 키가 유효하지 않거나 설정되지 않았습니다.*\n\n"
