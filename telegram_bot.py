@@ -629,7 +629,38 @@ def sync_portfolio():
     # Text parsing handler for trades: "[종목] 매수/매도 [수량] [단가]"
     @bot.message_handler(func=lambda message: True)
     def parse_trade_text(message):
-        parts = message.text.strip().split()
+        text = message.text.strip()
+        
+        # Handle reply keyboard button clicks
+        if text == "🤖 AI 종목 분석":
+            bot.reply_to(
+                message,
+                "🤖 *AI 종목 분석 사용법:*\n"
+                "`/ai [종목명 또는 티커]` 형태로 입력해 주세요.\n\n"
+                "• 예: `/ai 삼성전자`\n"
+                "• 예: `/ai SK하이닉스`\n"
+                "• 예: `/ai AAPL`\n"
+                "• 예: `/ai NVDA`",
+                reply_markup=get_main_keyboard()
+            )
+            return
+        elif text == "📊 포트폴리오 조회":
+            show_portfolio(message)
+            return
+        elif text == "💰 예수금 조회":
+            show_balance(message)
+            return
+        elif text == "🌅 아침 브리핑":
+            trigger_morning(message)
+            return
+        elif text == "🌆 저녁 브리핑":
+            trigger_evening(message)
+            return
+        elif text == "✍️ 매매 등록 안내":
+            send_welcome(message)
+            return
+
+        parts = text.split()
         if len(parts) != 4:
             if any(word in message.text for word in ["매수", "매도", "buy", "sell"]):
                 bot.reply_to(message, "⚠️ 입력 형식이 바르지 않습니다.\n양식: `[종목명] 매수/매도 [수량] [단가]`\n예: `삼성전자 매수 10 75000`")
@@ -706,6 +737,7 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
     """
     Sends a potentially long message by splitting it into chunks of under 4000 characters,
     split at newline boundaries to avoid breaking markdown.
+    Falls back to plain text if Markdown parsing fails.
     """
     if not text:
         return False
@@ -719,8 +751,16 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
                 bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup)
             return True
         except Exception as e:
-            print(f"Error sending message: {e}")
-            return False
+            print(f"Markdown send failed ({e}), retrying without markdown...")
+            try:
+                if reply_to_message_id:
+                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
+                else:
+                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
+                return True
+            except Exception as e2:
+                print(f"Plain text send failed: {e2}")
+                return False
 
     # Split by lines
     lines = text.split("\n")
@@ -729,7 +769,6 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
     current_length = 0
     
     for line in lines:
-        # Add 1 for the newline character
         if current_length + len(line) + 1 > MAX_LEN:
             if current_chunk:
                 chunks.append("\n".join(current_chunk))
@@ -745,16 +784,22 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
     success = True
     for i, chunk in enumerate(chunks):
         try:
-            # Only apply reply_markup to the last chunk
             markup = reply_markup if i == len(chunks) - 1 else None
-            
             if reply_to_message_id and i == 0:
                 bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup, reply_to_message_id=reply_to_message_id)
             else:
                 bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
         except Exception as e:
-            print(f"Error sending chunk {i}: {e}")
-            success = False
+            print(f"Markdown chunk {i} failed ({e}), retrying plain text...")
+            try:
+                markup = reply_markup if i == len(chunks) - 1 else None
+                if reply_to_message_id and i == 0:
+                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup, reply_to_message_id=reply_to_message_id)
+                else:
+                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+            except Exception as e2:
+                print(f"Plain text chunk {i} failed: {e2}")
+                success = False
             
     return success
 
