@@ -26,19 +26,47 @@ def get_kr_stock_name(code):
         print(f"Error fetching KR stock name for '{code}': {e}")
     return code
 
+KR_STOCK_MAP = {
+    "삼성전자": ("005930.KS", "삼성전자"),
+    "SK하이닉스": ("000660.KS", "SK하이닉스"),
+    "하이닉스": ("000660.KS", "SK하이닉스"),
+    "현대차": ("005380.KS", "현대차"),
+    "현대자동차": ("005380.KS", "현대차"),
+    "삼성전기": ("009150.KS", "삼성전기"),
+    "삼성중공업": ("010140.KS", "삼성중공업"),
+    "LG이노텍": ("011070.KS", "LG이노텍"),
+    "두산에너빌리티": ("034020.KS", "두산에너빌리티"),
+    "현대로템": ("064350.KS", "현대로템"),
+    "KODEX 200": ("069500.KS", "KODEX 200"),
+    "KODEX 코스닥150": ("229200.KQ", "KODEX 코스닥150"),
+    "카카오": ("035720.KS", "카카오"),
+    "NAVER": ("035420.KS", "NAVER"),
+    "네이버": ("035420.KS", "NAVER"),
+    "LG에너지솔루션": ("373220.KS", "LG에너지솔루션"),
+    "POSCO홀딩스": ("005490.KS", "POSCO홀딩스"),
+    "포스코": ("005490.KS", "POSCO홀딩스"),
+    "셀트리온": ("068270.KS", "셀트리온"),
+    "기아": ("000270.KS", "기아"),
+    "한화에어로스페이스": ("012450.KS", "한화에어로스페이스"),
+    "알테오젠": ("196170.KQ", "알테오젠"),
+}
+
 def search_naver_ticker(query):
     """
-    Searches stock ticker using Naver Search.
+    Searches stock ticker using predefined dictionary, Naver Auto-complete API, and Naver Search.
     Returns (ticker, name) or (None, None)
     """
     query = query.strip()
     if not query:
         return None, None
         
+    # Check built-in map
+    if query in KR_STOCK_MAP:
+        return KR_STOCK_MAP[query]
+        
     # If query is a 6-digit number, it's a ticker code
     if query.isdigit() and len(query) == 6:
         name = get_kr_stock_name(query)
-        # Determine KS or KQ by testing on yfinance
         for suffix in [".KS", ".KQ"]:
             try:
                 t = yf.Ticker(f"{query}{suffix}")
@@ -48,6 +76,30 @@ def search_naver_ticker(query):
             except Exception:
                 pass
         return f"{query}.KS", name
+
+    # Try Naver Finance Auto-complete API
+    try:
+        ac_url = f"https://ac.finance.naver.com/ac?q={urllib.parse.quote(query)}&target=stock"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(ac_url, headers=headers, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            items = data.get("items", [])
+            if items and items[0]:
+                match = items[0][0]
+                stock_name = match[0]
+                code = match[1]
+                for suffix in [".KS", ".KQ"]:
+                    try:
+                        t = yf.Ticker(f"{code}{suffix}")
+                        hist = t.history(period="1d")
+                        if not hist.empty:
+                            return f"{code}{suffix}", stock_name
+                    except Exception:
+                        pass
+                return f"{code}.KS", stock_name
+    except Exception as e:
+        print(f"Error calling Naver ac API: {e}")
 
     # Otherwise, search by name using Naver Search
     url = f"https://search.naver.com/search.naver?query={urllib.parse.quote(query + ' 주가')}"
@@ -62,7 +114,6 @@ def search_naver_ticker(query):
             if codes:
                 code = codes[0]
                 name = get_kr_stock_name(code)
-                # Determine KOSPI (.KS) vs KOSDAQ (.KQ)
                 for suffix in [".KS", ".KQ"]:
                     try:
                         t = yf.Ticker(f"{code}{suffix}")
