@@ -1092,6 +1092,16 @@ def analyze_single_stock_with_ai(query, api_key):
     except Exception as e:
         print(f"Error calling Gemini API for single stock analysis: {e}")
         err_str = str(e)
+        if "UNAUTHENTICATED" in err_str or "401" in err_str or "ACCESS_TOKEN_TYPE_UNSUPPORTED" in err_str:
+            return (
+                "⚠️ *지원되지 않는 API 키 유형입니다 (GCP 콘솔 전용 키)*\n\n"
+                "입력하신 키(`AQ...`)는 Google Cloud Console 전용 키로, Gemini 개발자 API와 호환되지 않습니다.\n\n"
+                "💡 *Google AI Studio 개발자 API 키(`AIzaSy...`) 즉시 발급방법:*\n"
+                "1. [Google AI Studio (aistudio.google.com)](https://aistudio.google.com/app/apikey) 접속\n"
+                "2. **Get API key** → **Create API key** 클릭\n"
+                "3. `AIzaSy...`로 시작하는 키 복사 후 텔레그램 입력:\n"
+                "`/set_gemini [복사한_AIzaSy_키]`"
+            )
         if "prepayment credits are depleted" in err_str or "top up your balance" in err_str:
             return (
                 "⚠️ *Gemini API 선불 잔액(Prepaid credits) 소진*\n\n"
