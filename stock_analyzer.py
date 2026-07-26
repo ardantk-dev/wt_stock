@@ -644,10 +644,20 @@ def generate_ai_analysis(portfolio_data, indices_data, api_key):
 """
 
         # Generate content using the new SDK
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt,
+            )
+        except Exception as model_err:
+            if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
+                response = client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=prompt,
+                )
+            else:
+                raise model_err
+
         return response.text
     except Exception as e:
         print(f"Error generating AI analysis with Gemini: {e}")
@@ -1004,10 +1014,20 @@ def analyze_single_stock_with_ai(query, api_key):
 
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt,
+            )
+        except Exception as model_err:
+            if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
+                response = client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=prompt,
+                )
+            else:
+                raise model_err
+
         ai_text = response.text.strip()
         
         result_msg = f"🤖 *[Gemini AI 종목 분석]* - *{name}* (`{ticker}`)\n"
