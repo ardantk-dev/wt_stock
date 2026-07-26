@@ -735,9 +735,8 @@ def sync_portfolio():
 
 def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=None):
     """
-    Sends a potentially long message by splitting it into chunks of under 4000 characters,
-    split at newline boundaries to avoid breaking markdown.
-    Falls back to plain text if Markdown parsing fails.
+    Sends a potentially long message by splitting it into chunks of under 4000 characters.
+    Ultra-resilient: tries reply_to + markdown -> markdown without reply_to -> plain text fallback.
     """
     if not text:
         return False
@@ -745,22 +744,21 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
     MAX_LEN = 4000
     if len(text) <= MAX_LEN:
         try:
-            if reply_to_message_id:
-                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
-            else:
-                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup)
+            bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
             return True
-        except Exception as e:
-            print(f"Markdown send failed ({e}), retrying without markdown...")
+        except Exception as e1:
+            print(f"Send with reply_to failed ({e1}), retrying without reply_to...")
             try:
-                if reply_to_message_id:
-                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup, reply_to_message_id=reply_to_message_id)
-                else:
-                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
+                bot.send_message(chat_id, text, parse_mode="MARKDOWN", reply_markup=reply_markup)
                 return True
             except Exception as e2:
-                print(f"Plain text send failed: {e2}")
-                return False
+                print(f"Markdown send failed ({e2}), retrying plain text...")
+                try:
+                    bot.send_message(chat_id, text, parse_mode=None, reply_markup=reply_markup)
+                    return True
+                except Exception as e3:
+                    print(f"Plain text send failed: {e3}")
+                    return False
 
     # Split by lines
     lines = text.split("\n")
@@ -783,23 +781,20 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
         
     success = True
     for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
         try:
-            markup = reply_markup if i == len(chunks) - 1 else None
-            if reply_to_message_id and i == 0:
-                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup, reply_to_message_id=reply_to_message_id)
-            else:
-                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
-        except Exception as e:
-            print(f"Markdown chunk {i} failed ({e}), retrying plain text...")
+            bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
+        except Exception as e1:
+            print(f"Chunk {i} send with reply_to failed ({e1}), retrying without reply_to...")
             try:
-                markup = reply_markup if i == len(chunks) - 1 else None
-                if reply_to_message_id and i == 0:
-                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup, reply_to_message_id=reply_to_message_id)
-                else:
-                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+                bot.send_message(chat_id, chunk, parse_mode="MARKDOWN", reply_markup=markup)
             except Exception as e2:
-                print(f"Plain text chunk {i} failed: {e2}")
-                success = False
+                print(f"Chunk {i} markdown failed ({e2}), retrying plain text...")
+                try:
+                    bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+                except Exception as e3:
+                    print(f"Chunk {i} plain text failed: {e3}")
+                    success = False
             
     return success
 
