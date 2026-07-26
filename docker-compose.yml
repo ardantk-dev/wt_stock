@@ -5,6 +5,9 @@ services:
     build: .
     container_name: wt-stock-bot
     restart: always
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       # Mount the state files so data is not lost when the container restarts
       - ./config.json:/app/config.json
