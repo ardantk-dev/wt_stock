@@ -1128,11 +1128,18 @@ def analyze_single_stock_with_ai(query, api_key):
             if not response or not response.text:
                 raise last_err or Exception("Gemini API call failed")
 
-            ai_text = response.text.strip()
-        
+        # Clean unclosed Markdown asterisks in ai_text to prevent Telegram Markdown v1 parse errors
+        clean_lines = []
+        for line in ai_text.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("* ") or stripped.startswith("*- "):
+                line = "• " + line.strip()[2:]
+            clean_lines.append(line)
+        ai_text_clean = "\n".join(clean_lines)
+
         result_msg = f"🤖 *[{provider_name} 종목 분석]* - *{name}* (`{ticker}`)\n"
         result_msg += f"💰 현재가: `{price_str}` ({pct_str})\n\n"
-        result_msg += ai_text
+        result_msg += ai_text_clean
         return result_msg
     except Exception as e:
         print(f"Error calling Gemini API for single stock analysis: {e}")
