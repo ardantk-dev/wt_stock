@@ -1064,28 +1064,73 @@ def analyze_single_stock_with_ai(query, api_key):
 """
 
     try:
-        client = genai.Client(api_key=api_key)
-        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
-        response = None
-        last_err = None
-        for m in models_to_try:
-            try:
-                response = client.models.generate_content(
-                    model=m,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    break
-            except Exception as m_err:
-                last_err = m_err
-                continue
+        api_key_clean = api_key.strip()
+        ai_text = None
+        provider_name = "Gemini AI"
 
-        if not response or not response.text:
-            raise last_err or Exception("Gemini API call failed")
+        # 1. Groq API (gsk_...) - 100% Free, Ultra Fast
+        if api_key_clean.startswith("gsk_"):
+            provider_name = "Groq AI (Llama 3.3)"
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {api_key_clean}", "Content-Type": "application/json"}
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "당신은 최고 수준의 주식 투자 전략가 및 자산 관리 AI 에이전트입니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.5
+            }
+            r = requests.post(url, headers=headers, json=payload, timeout=25)
+            if r.status_code == 200:
+                ai_text = r.json()["choices"][0]["message"]["content"].strip()
+            else:
+                raise Exception(f"Groq API 오류 ({r.status_code}): {r.text}")
 
-        ai_text = response.text.strip()
+        # 2. OpenAI / OpenRouter (sk-...)
+        elif api_key_clean.startswith("sk-"):
+            provider_name = "OpenAI / OpenRouter"
+            url = "https://openrouter.ai/api/v1/chat/completions" if api_key_clean.startswith("sk-or-") else "https://api.openai.com/v1/chat/completions"
+            model_name = "meta-llama/llama-3.3-70b-instruct" if api_key_clean.startswith("sk-or-") else "gpt-4o-mini"
+            headers = {"Authorization": f"Bearer {api_key_clean}", "Content-Type": "application/json"}
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": "당신은 최고 수준의 주식 투자 전략가 및 자산 관리 AI 에이전트입니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.5
+            }
+            r = requests.post(url, headers=headers, json=payload, timeout=25)
+            if r.status_code == 200:
+                ai_text = r.json()["choices"][0]["message"]["content"].strip()
+            else:
+                raise Exception(f"OpenAI API 오류 ({r.status_code}): {r.text}")
+
+        # 3. Gemini API (Default fallback)
+        else:
+            client = genai.Client(api_key=api_key_clean)
+            models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
+            response = None
+            last_err = None
+            for m in models_to_try:
+                try:
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                    )
+                    if response and response.text:
+                        break
+                except Exception as m_err:
+                    last_err = m_err
+                    continue
+
+            if not response or not response.text:
+                raise last_err or Exception("Gemini API call failed")
+
+            ai_text = response.text.strip()
         
-        result_msg = f"🤖 *[Gemini AI 종목 분석]* - *{name}* (`{ticker}`)\n"
+        result_msg = f"🤖 *[{provider_name} 종목 분석]* - *{name}* (`{ticker}`)\n"
         result_msg += f"💰 현재가: `{price_str}` ({pct_str})\n\n"
         result_msg += ai_text
         return result_msg
