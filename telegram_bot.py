@@ -36,7 +36,7 @@ BOT_TOKEN = config.get("telegram_token", "")
 bot = None
 if BOT_TOKEN:
     try:
-        bot = telebot.TeleBot(BOT_TOKEN, parse_mode="MARKDOWN")
+        bot = telebot.TeleBot(BOT_TOKEN)
     except Exception as e:
         print(f"Failed to initialise Telegram Bot: {e}")
 else:
@@ -802,7 +802,7 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
 
         # 3. Try Plain Text with reply_to
         try:
-            bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
+            bot.send_message(chat_id, chunk, parse_mode="", reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
             print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Plain Text with reply_to", flush=True)
             continue
         except Exception as e3:
@@ -810,7 +810,7 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
 
         # 4. Try Plain Text without reply_to (Ultimate Fallback)
         try:
-            bot.send_message(chat_id, chunk, parse_mode=None, reply_markup=markup)
+            bot.send_message(chat_id, chunk, parse_mode="", reply_markup=markup)
             print(f"[Telegram] Chunk {i+1}/{len(raw_chunks)} sent via Plain Text without reply_to", flush=True)
         except Exception as e4:
             print(f"[Telegram] Chunk {i+1} ALL send attempts failed: {e4}", flush=True)
