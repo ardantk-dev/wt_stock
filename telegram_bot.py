@@ -61,12 +61,12 @@ def get_main_keyboard():
     btn_portfolio = types.KeyboardButton("📊 포트폴리오 조회")
     btn_balance = types.KeyboardButton("💰 예수금 조회")
     btn_morning = types.KeyboardButton("🌅 아침 브리핑")
-    btn_noon = types.KeyboardButton("🕛 정오 브리핑")
     btn_evening = types.KeyboardButton("🌆 저녁 브리핑")
+    btn_ai = types.KeyboardButton("🤖 AI 종목 분석")
     btn_trade = types.KeyboardButton("✍️ 매매 등록 안내")
     keyboard.add(btn_portfolio, btn_balance)
-    keyboard.add(btn_morning, btn_noon, btn_evening)
-    keyboard.add(btn_trade)
+    keyboard.add(btn_morning, btn_evening)
+    keyboard.add(btn_ai, btn_trade)
     return keyboard
 
 # Command Handlers
@@ -87,6 +87,7 @@ if bot:
             f"자동으로 귀하의 Chat ID `{chat_id}`가 시스템에 등록되었습니다.\n"
             "매일 아침 7시와 저녁 8시 30분에 설정된 브리핑이 발송됩니다.\n\n"
             "📌 *사용 가능한 명령어:*\n"
+            "• /ai `[종목명]` (또는 버튼) - Gemini AI 개별 종목 1분 정밀 분석 리포트\n"
             "• /portfolio (또는 버튼) - 현재 내 보유 자산 및 수익률 실시간 조회\n"
             "• /balance (또는 버튼) - 키움증권 실제 예수금 및 출금가능금액 조회\n"
             "• /morning - 아침 7시 모닝 브리핑 수동 트리거\n"
@@ -94,7 +95,7 @@ if bot:
             "• /sync - 키움증권 실제 잔고와 포트폴리오 동기화\n"
             "• /buy `[종목]` `[수량]` `[단가]` - 실제 키움증권 계좌로 매수 주문 전송 (0 입력 시 시장가)\n"
             "• /sell `[종목]` `[수량]` `[단가]` - 실제 키움증권 계좌로 매도 주문 전송 (0 입력 시 시장가)\n"
-            "• /add `[종목]` `[수량]` `[평단가]` - 종목 포트폴리오에 직접 추가 (국가 자동 판별)\n"
+            "• /add `[종목]` `[수량]` `[평단가]` - 종목 포트폴리오에 직접 추가\n"
             "• /remove `[종목]` - 포트폴리오에서 종목 삭제\n\n"
             "✍️ *간편 매매 기록 등록 방법:*\n"
             "채팅창에 아래 양식으로 직접 메시지를 입력하시면 실제 키움 주문 전송 여부를 확인 후 처리합니다:\n"
@@ -172,6 +173,61 @@ if bot:
         bot.send_chat_action(message.chat.id, 'typing')
         brief = stock_analyzer.format_evening_briefing(portfolio)
         send_split_message(message.chat.id, brief, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['ai'])
+    def ai_stock_analysis(message):
+        text = message.text.strip()
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(
+                message,
+                "🤖 *Gemini AI 종목 분석 사용법:*\n"
+                "`/ai [종목명 또는 티커]` 형태로 입력해 주세요.\n\n"
+                "• 예: `/ai 삼성전자`\n"
+                "• 예: `/ai SK하이닉스`\n"
+                "• 예: `/ai AAPL`\n"
+                "• 예: `/ai NVDA`",
+                reply_markup=get_main_keyboard()
+            )
+            return
+            
+        stock_query = parts[1].strip()
+        cfg = load_json(CONFIG_FILE, {})
+        api_key = cfg.get("gemini_api_key", "")
+        
+        if not api_key:
+            bot.reply_to(
+                message,
+                "⚠️ *Gemini API 키가 설정되지 않았습니다.*\n"
+                "`config.json` 파일의 `gemini_api_key` 항목을 설정하거나\n"
+                "`/set_gemini [API_KEY]` 명령어로 저장해 주세요.",
+                reply_markup=get_main_keyboard()
+            )
+            return
+            
+        bot.send_chat_action(message.chat.id, 'typing')
+        status_msg = bot.reply_to(message, f"🔍 *'{stock_query}'* 종목을 Gemini AI로 분석 중입니다... 잠시만 기다려 주세요 ⏳")
+        
+        analysis_text = stock_analyzer.analyze_single_stock_with_ai(stock_query, api_key)
+        
+        try:
+            bot.delete_message(message.chat.id, status_msg.message_id)
+        except Exception:
+            pass
+            
+        send_split_message(message.chat.id, analysis_text, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
+
+    @bot.message_handler(commands=['set_gemini'])
+    def set_gemini_key(message):
+        parts = message.text.strip().split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ 사용법: `/set_gemini [Gemini_API_Key]` 형태로 입력해 주세요.")
+            return
+        key = parts[1].strip()
+        cfg = load_json(CONFIG_FILE, {})
+        cfg["gemini_api_key"] = key
+        save_json(CONFIG_FILE, cfg)
+        bot.reply_to(message, "✅ *Gemini API 키가 정상적으로 저장되었습니다!*\n이제 `/ai [종목명]` 명령어를 이용하여 1분 AI 종목 정밀 분석을 이용하실 수 있습니다.")
 
     @bot.message_handler(commands=['add'])
     def add_stock_command(message):
@@ -275,7 +331,7 @@ if bot:
             bot.reply_to(message, f"⚠️ 포트폴리오에서 '{name_or_symbol}' 종목을 찾지 못했습니다.")
 
     # Keyboard text button handlers
-    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "💰 예수금 조회", "🌅 아침 브리핑", "🕛 정오 브리핑", "🌆 저녁 브리핑", "✍️ 매매 등록 안내"])
+    @bot.message_handler(func=lambda message: message.text in ["📊 포트폴리오 조회", "💰 예수금 조회", "🌅 아침 브리핑", "🕛 정오 브리핑", "🌆 저녁 브리핑", "🤖 AI 종목 분석", "✍️ 매매 등록 안내"])
     def handle_keyboard_buttons(message):
         if message.text == "📊 포트폴리오 조회":
             show_portfolio(message)
@@ -287,6 +343,17 @@ if bot:
             trigger_noon(message)
         elif message.text == "🌆 저녁 브리핑":
             trigger_evening(message)
+        elif message.text == "🤖 AI 종목 분석":
+            bot.reply_to(
+                message,
+                "🤖 *Gemini AI 종목 분석 사용법:*\n"
+                "분석하고 싶은 종목명을 `/ai [종목명]` 양식으로 채팅에 입력해 주세요!\n\n"
+                "• 예: `/ai 삼성전자`\n"
+                "• 예: `/ai SK하이닉스`\n"
+                "• 예: `/ai AAPL`\n"
+                "• 예: `/ai TSLA`",
+                reply_markup=get_main_keyboard()
+            )
         elif message.text == "✍️ 매매 등록 안내":
             info_text = (
                 "✍️ *매매 기록 간편 등록*\n\n"

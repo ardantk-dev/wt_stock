@@ -911,3 +911,110 @@ def format_evening_briefing(portfolio_data):
     brief += "또는 아래 메뉴 버튼을 이용해 포트폴리오를 조회해보세요. 👇"
     
     return brief
+
+def analyze_single_stock_with_ai(query, api_key):
+    """
+    Analyzes a specific stock (KR or US) using Gemini AI.
+    Returns formatted Markdown text for Telegram.
+    """
+    if not api_key:
+        return "⚠️ *Gemini API 키 미설정*\n`config.json`에 `gemini_api_key`를 설정해 주세요."
+
+    query = query.strip()
+    if not query:
+        return "⚠️ *종목명 또는 티커를 입력해 주세요.*\n(예: `/ai 삼성전자`, `/ai AAPL`, `/ai 005930`)"
+
+    # Try resolving KR stock first
+    ticker, name = resolve_ticker(query, nation="KR")
+    nation = "KR"
+
+    # If not resolved or fallback, try US
+    if not ticker or (ticker.endswith(".KS") and name == query and not query.isdigit()):
+        us_ticker, us_name = resolve_ticker(query, nation="US")
+        if us_ticker and us_name != query:
+            ticker, name, nation = us_ticker, us_name, "US"
+
+    if not ticker:
+        ticker, name, nation = query, query, "US"
+
+    summary = get_stock_summary(ticker, nation)
+    if not summary:
+        # Fallback retry as US
+        summary = get_stock_summary(query, "US")
+        if summary:
+            ticker, name, nation = query, summary.get("name", query), "US"
+
+    if not summary:
+        return f"❌ *'{query}' 종목 정보를 찾을 수 없습니다.*\n종목명이나 정확한 티커(코드)를 확인해 주세요."
+
+    # Prepare data for Gemini
+    price_str = f"{summary['close']:,.2f}{'원' if nation == 'KR' else '$'}"
+    change_sign = "+" if summary['pct_change'] > 0 else ""
+    pct_str = f"{change_sign}{summary['pct_change']:.2f}%"
+    
+    news_items = summary.get("news", [])
+    news_titles = [n['title'] for n in news_items]
+    news_str = "\n".join([f"- {t}" for t in news_titles]) if news_titles else "최근 헤드라인 뉴스 없음"
+
+    tech_info = []
+    if summary.get("ma_20"):
+        pos_20 = "상승 우세 🟢" if summary['close'] > summary['ma_20'] else "하락 우세 🔴"
+        tech_info.append(f"20일 이평선: {summary['ma_20']:,.2f} ({pos_20})")
+    if summary.get("ma_60"):
+        pos_60 = "상승 우세 🟢" if summary['close'] > summary['ma_60'] else "하락 우세 🔴"
+        tech_info.append(f"60일 이평선: {summary['ma_60']:,.2f} ({pos_60})")
+    if summary.get("rsi_14"):
+        rsi_val = summary["rsi_14"]
+        rsi_desc = "과매수 영역 ⚠️" if rsi_val > 70 else "과매도 영역 ⚡" if rsi_val < 30 else "중립 영역"
+        tech_info.append(f"RSI (14): {rsi_val:.1f} ({rsi_desc})")
+
+    tech_str = "\n".join([f"- {t}" for t in tech_info]) if tech_info else "기술적 지표 계산 중"
+
+    prompt = f"""
+당신은 최고 수준의 주식 투자 전략가 및 자산 관리 AI 에이전트입니다.
+아래 제공된 특정 종목의 시세, 기술적 지표 및 최근 헤드라인 뉴스를 종합 분석하여 투자자를 위한 **1분 AI 종목 정밀 분석 리포트**를 작성해 주세요.
+
+[분석 대상 종목]
+- 종목명: {name} (티커: {ticker}, 국가: {nation})
+- 현재가: {price_str} (전일대비: {pct_str})
+- 주 52주 최고가: {summary.get('high_52', 0):,.2f} / 최저가: {summary.get('low_52', 0):,.2f}
+
+[기술적 분석 지표]
+{tech_str}
+
+[최근 관련 헤드라인 뉴스]
+{news_str}
+
+아래 작성 가이드를 준수하여 텔레그램 메시지용 마크다운 형식으로 작성해 주세요.
+
+[작성 가이드]
+1. 📊 **투자의견 & 종합 평점**:
+   - 투자의견: `🟢 매수 (Buy)`, `🟡 관망 (Hold)`, `🔴 매도/비중축소 (Sell/Trim)` 중 하나를 명확히 선택해 주세요.
+   - 단기 매매 성향 평점(1~5점)을 매겨주세요.
+
+2. 💡 **핵심 모멘텀 & 호재/악재 분석**:
+   - 주가 흐름, 기술적 지표, 뉴스 이슈를 바탕으로 상승 모멘텀(호재) 및 리스크 요소(악재)를 각각 2줄 이내로 명확히 분석해 주세요.
+
+3. 🎯 **권장 전략 & 목표가/손절가 제안**:
+   - 신규 진입 및 기존 보유자를 위한 구체적인 대응 전략을 제시해 주세요.
+   - 현재가 대비 적정 목표가 범위와 손절 기준가를 제시해 주세요.
+
+시각적으로 깔끔하게 마크다운 기호(`*`, `•`, `🟢`, `🟡`, `🔴`, `🎯`)를 활용하여 핵심 위주로 명확하고 간결하게 작성해 주세요.
+"""
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        ai_text = response.text.strip()
+        
+        result_msg = f"🤖 *[Gemini AI 종목 분석]* - *{name}* (`{ticker}`)\n"
+        result_msg += f"💰 현재가: `{price_str}` ({pct_str})\n\n"
+        result_msg += ai_text
+        return result_msg
+    except Exception as e:
+        print(f"Error calling Gemini API for single stock analysis: {e}")
+        return f"❌ *AI 분석 중 오류가 발생했습니다.*\n`{e}`"
+
