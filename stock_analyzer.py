@@ -989,21 +989,21 @@ def analyze_single_stock_with_ai(query, api_key):
     ticker, name = resolve_ticker(query, nation="KR")
     nation = "KR"
 
-    # If not resolved or fallback, try US
-    if not ticker or (ticker.endswith(".KS") and name == query and not query.isdigit()):
+    # If KR ticker resolution failed (doesn't end with .KS or .KQ), try US ticker resolution
+    if not ticker or not (ticker.endswith(".KS") or ticker.endswith(".KQ")):
         us_ticker, us_name = resolve_ticker(query, nation="US")
-        if us_ticker and us_name != query:
+        if us_ticker and us_ticker != query:
             ticker, name, nation = us_ticker, us_name, "US"
 
     if not ticker:
         ticker, name, nation = query, query, "US"
 
     summary = get_stock_summary(ticker, nation)
-    if not summary:
-        # Fallback retry as US
+    if not summary and nation == "KR":
+        # Fallback retry without nation suffix
+        summary = get_stock_summary(query, "KR")
+    elif not summary and nation == "US":
         summary = get_stock_summary(query, "US")
-        if summary:
-            ticker, name, nation = query, summary.get("name", query), "US"
 
     if not summary:
         return f"❌ *'{query}' 종목 정보를 찾을 수 없습니다.*\n종목명이나 정확한 티커(코드)를 확인해 주세요."
