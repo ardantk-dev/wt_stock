@@ -1128,12 +1128,11 @@ def analyze_single_stock_with_ai(query, api_key):
             if not response or not response.text:
                 raise last_err or Exception("Gemini API call failed")
 
-        # Clean unclosed Markdown asterisks in ai_text to prevent Telegram Markdown v1 parse errors
+        # Clean unclosed Markdown asterisks and bullets in ai_text to prevent Telegram Markdown v1 parse errors
         clean_lines = []
         for line in ai_text.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("* ") or stripped.startswith("*- "):
-                line = "• " + line.strip()[2:]
+            if re.match(r'^\s*[\*\-]\s+', line):
+                line = re.sub(r'^\s*[\*\-]\s+', '• ', line)
             clean_lines.append(line)
         ai_text_clean = "\n".join(clean_lines)
 
