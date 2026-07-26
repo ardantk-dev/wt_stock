@@ -9,7 +9,7 @@ print("Testing Key:", api_key[:10] + "..." + api_key[-5:])
 
 client = genai.Client(api_key=api_key)
 
-for m in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash']:
+for m in ['gemini-1.5-flash-latest', 'gemini-2.0-flash-001', 'gemini-2.0-flash-exp', 'gemini-1.5-flash-8b', 'gemini-1.5-pro-latest']:
     try:
         res = client.models.generate_content(model=m, contents="Hello")
         print(f"[{m}] SUCCESS ->", res.text.strip()[:60])
