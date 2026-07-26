@@ -1092,6 +1092,16 @@ def analyze_single_stock_with_ai(query, api_key):
     except Exception as e:
         print(f"Error calling Gemini API for single stock analysis: {e}")
         err_str = str(e)
+        if "prepayment credits are depleted" in err_str or "top up your balance" in err_str:
+            return (
+                "⚠️ *Gemini API 선불 잔액(Prepaid credits) 소진*\n\n"
+                "현재 연동된 결제 계정(`Tier 1 · 선불`)의 예치 잔액이 0달러로 소진되었습니다.\n\n"
+                "💡 *무료로 사용하는 방법 (추천):*\n"
+                "1. [Google AI Studio](https://aistudio.google.com/app/apikey) 접속\n"
+                "2. **API 키 만들기** → **무료 등급(Free Tier) 새 프로젝트** 선택 후 키 생성\n"
+                "3. 복사한 무료 키를 텔레그램 채팅창에 등록:\n"
+                "`/set_gemini [새로_발급받은_API_KEY]`"
+            )
         if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "limit: 0" in err_str or "Quota exceeded" in err_str:
             return (
                 "⚠️ *Gemini API 무료 쿼터 미지원 키 사용 중*\n\n"
