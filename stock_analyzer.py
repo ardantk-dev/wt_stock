@@ -1136,7 +1136,7 @@ def analyze_single_stock_with_ai(query, api_key):
             clean_lines.append(line)
         ai_text_clean = "\n".join(clean_lines)
 
-        result_msg = f"🤖 *[{provider_name} 종목 분석]* - *{name}* (`{ticker}`)\n"
+        result_msg = f"🤖 *{provider_name} 종목 분석* - *{name}* (`{ticker}`)\n"
         result_msg += f"💰 현재가: `{price_str}` ({pct_str})\n\n"
         result_msg += ai_text_clean
         return result_msg

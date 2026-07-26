@@ -802,7 +802,7 @@ def send_split_message(chat_id, text, reply_to_message_id=None, reply_markup=Non
             print(f"[Telegram] Chunk {i+1} markdown without reply_to failed: {e2}", flush=True)
 
         # 3. Strip all markdown symbols to guarantee 100% plain text delivery
-        plain_chunk = chunk.replace("*", "").replace("`", "").replace("_", "")
+        plain_chunk = chunk.replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
         
         try:
             bot.send_message(chat_id, plain_chunk, parse_mode=None, reply_markup=markup, reply_to_message_id=reply_to_message_id if i == 0 else None)
