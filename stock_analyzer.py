@@ -1065,19 +1065,23 @@ def analyze_single_stock_with_ai(query, api_key):
 
     try:
         client = genai.Client(api_key=api_key)
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt,
-            )
-        except Exception as model_err:
-            if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
+        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
+        response = None
+        last_err = None
+        for m in models_to_try:
+            try:
                 response = client.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model=m,
                     contents=prompt,
                 )
-            else:
-                raise model_err
+                if response and response.text:
+                    break
+            except Exception as m_err:
+                last_err = m_err
+                continue
+
+        if not response or not response.text:
+            raise last_err or Exception("Gemini API call failed")
 
         ai_text = response.text.strip()
         
