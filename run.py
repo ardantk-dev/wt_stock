@@ -6,11 +6,12 @@ import scheduler
 
 def start_bot():
     print("Bot: Starting message polling...")
-    try:
-        # Start telegram bot polling
-        telegram_bot.bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e:
-        print(f"Bot Error: {e}")
+    while True:
+        try:
+            telegram_bot.bot.infinity_polling(timeout=15, long_polling_timeout=10)
+        except Exception as e:
+            print(f"Bot Polling Error: {e}. Retrying in 3 seconds...")
+            time.sleep(3)
 
 def main():
     # Double check configuration

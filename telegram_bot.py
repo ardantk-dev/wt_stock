@@ -176,12 +176,13 @@ if bot:
 
     @bot.message_handler(commands=['ai'])
     def ai_stock_analysis(message):
+        print(f"[Telegram] Received /ai command: {message.text} from chat_id {message.chat.id}")
         text = message.text.strip()
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
             bot.reply_to(
                 message,
-                "🤖 *Gemini AI 종목 분석 사용법:*\n"
+                "🤖 *AI 종목 분석 사용법:*\n"
                 "`/ai [종목명 또는 티커]` 형태로 입력해 주세요.\n\n"
                 "• 예: `/ai 삼성전자`\n"
                 "• 예: `/ai SK하이닉스`\n"
@@ -198,24 +199,33 @@ if bot:
         if not api_key:
             bot.reply_to(
                 message,
-                "⚠️ *Gemini API 키가 설정되지 않았습니다.*\n"
-                "`config.json` 파일의 `gemini_api_key` 항목을 설정하거나\n"
-                "`/set_gemini [API_KEY]` 명령어로 저장해 주세요.",
+                "⚠️ *AI API 키가 설정되지 않았습니다.*\n"
+                "`/set_gemini [API_KEY]` 명령어로 등록해 주세요.",
                 reply_markup=get_main_keyboard()
             )
             return
             
-        bot.send_chat_action(message.chat.id, 'typing')
-        status_msg = bot.reply_to(message, f"🔍 *'{stock_query}'* 종목을 Gemini AI로 분석 중입니다... 잠시만 기다려 주세요 ⏳")
-        
-        analysis_text = stock_analyzer.analyze_single_stock_with_ai(stock_query, api_key)
+        status_msg = None
+        try:
+            bot.send_chat_action(message.chat.id, 'typing')
+            status_msg = bot.reply_to(message, f"🔍 *'{stock_query}'* 종목을 AI로 분석 중입니다... 잠시만 기다려 주세요 ⏳")
+        except Exception as e:
+            print(f"[Telegram] Error sending typing status msg: {e}")
         
         try:
-            bot.delete_message(message.chat.id, status_msg.message_id)
-        except Exception:
-            pass
+            analysis_text = stock_analyzer.analyze_single_stock_with_ai(stock_query, api_key)
+        except Exception as e:
+            print(f"[Telegram] Error running stock analysis: {e}")
+            analysis_text = f"❌ *AI 분석 중 오류가 발생했습니다.*\n`{e}`"
+        
+        if status_msg:
+            try:
+                bot.delete_message(message.chat.id, status_msg.message_id)
+            except Exception as e:
+                print(f"[Telegram] Could not delete status msg: {e}")
             
-        send_split_message(message.chat.id, analysis_text, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
+        sent = send_split_message(message.chat.id, analysis_text, reply_to_message_id=message.message_id, reply_markup=get_main_keyboard())
+        print(f"[Telegram] Sent analysis for '{stock_query}' -> success: {sent}")
 
     @bot.message_handler(commands=['set_gemini'])
     def set_gemini_key(message):
