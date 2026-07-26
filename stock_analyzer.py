@@ -1016,5 +1016,14 @@ def analyze_single_stock_with_ai(query, api_key):
         return result_msg
     except Exception as e:
         print(f"Error calling Gemini API for single stock analysis: {e}")
+        err_str = str(e)
+        if "API_KEY_INVALID" in err_str or "API key not valid" in err_str or "INVALID_ARGUMENT" in err_str:
+            return (
+                "⚠️ *Gemini API 키가 유효하지 않거나 설정되지 않았습니다.*\n\n"
+                "구글 AI 스튜디오에서 무료 API 키를 발급받으신 후 텔레그램 창에 등록해 주세요:\n"
+                "`/set_gemini [발급받은_API_KEY]`\n\n"
+                "🔗 *무료 API 키 발급 받기:*\n"
+                "https://aistudio.google.com/app/apikey"
+            )
         return f"❌ *AI 분석 중 오류가 발생했습니다.*\n`{e}`"
 
